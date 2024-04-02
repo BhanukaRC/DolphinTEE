@@ -107,6 +107,10 @@ def client_handler(args):
     client.send_data(message.encode())
     error, response = client.recv_data().split(' ')
     print("")
+    message = "request" + space + "None" + space + + client_pub_key.hex()
+    client.send_data(message.encode())
+    error, response = client.recv_data().split(' ')
+    print("")
     #client.disconnect()
 
 def send_message(server_address, server_port, message):

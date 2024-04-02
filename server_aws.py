@@ -18,6 +18,7 @@ from cryptography.hazmat.backends import default_backend
 # Global dictionaries to store DH keys and content associated with each client key
 dh_key_store = {}
 content_store = {}
+credentials_store = {}
 
 # BODY_HTML = """<html>
 # <head></head>
@@ -120,50 +121,17 @@ def server_handler(args):
                     plaintext = decryptor.update(ciphertext) + decryptor.finalize()
                     plaintext = plaintext.decode()
                     print(plaintext)
+                    credentials_store[client_key] = plaintext
+            elif data_type == "request":        
+                if client_key not in dh_key_store or dh_key_store[client_key] is None or dh_key_store[client_key][1] is None:
+                    output = [True, "Invalid DH Client Public Key"]
+                    conn.sendall(" ".join(map(str, output)).encode())
+                else:
                     credentials = plaintext.split('|')
                     sender_email, sender_username, sender_password, receiver_emails = credentials[0], credentials[1], credentials[2], credentials[3]
                     print(sender_email, sender_username, sender_password, receiver_emails)
                     content = content_store[client_key]
                     
-
-
-                    
-                    """
-                    email_client = boto3.client('ses',region_name=AWS_REGION,aws_access_key_id=sender_username, aws_secret_access_key=sender_password)
-
-                    # Try to send the email.
-                    try:
-                        #Provide the contents of the email.
-                        response = email_client.send_email(
-                            Destination={
-                                'ToAddresses': receiver_emails.split(','),
-                            },
-                            Message={
-                                'Body': {
-                                    'Html': {
-                                        'Charset': CHARSET,
-                                        'Data': BODY_HTML,
-                                    },
-                                    'Text': {
-                                        'Charset': CHARSET,
-                                        'Data': content,
-                                    },
-                                },
-                                'Subject': {
-                                    'Charset': CHARSET,
-                                    'Data': "Dolphins are communicating!",
-                                },
-                            },
-                            Source=sender_email,
-                        )
-                    except ClientError as e:
-                        print(e.response['Error']['Message'])
-                    else:
-                        print("Email sent! Message ID:"),
-                        print(response['MessageId'])
-
-                    """
-
                     output = [False, None]
                     conn.sendall(" ".join(map(str, output)).encode())
 
