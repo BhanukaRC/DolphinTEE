@@ -12,6 +12,14 @@ from coincurve import PrivateKey, PublicKey
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 
+import extensions
+import ec_curves
+import signature_algorithms
+import constants
+import tls
+
+from tls_proxy import Proxy, print_hex
+
 class VsockStream:
     client_private_key = None  # Store client's private key globally
 
@@ -101,17 +109,106 @@ def client_handler(args):
     #check receive data is None and length before split
     error, response = client.recv_data().split(' ')
     print("")
-    cred = "bhanukaindia@gmail.com|AKIAUET47FSVPLZCPP42|/+6qtWhX78DC0Af2pGGzkGerGch6UjFY2d+Gl99e|bhanukarc@gmail.com,seshenya@gmail.com"
+    cred = "bhanukadolphin@gmail.com|AKIAUET47FSVJDPSNS6K|8QmJcpkHSzK5DJbkDcKmAFWtj/VY9FKxpwxo/91Q|bhanukarc@gmail.com"
     encrypted_cred = client.encrypt_data(cred, full_dh_key)
     message = "credentials" + space + encrypted_cred.hex() + space + client_pub_key.hex()
     client.send_data(message.encode())
     error, response = client.recv_data().split(' ')
     print("")
-    message = "request" + space + "None" + space + + client_pub_key.hex()
+    
+    port = 443
+    tls_version = tls.TLSV1_2()
+
+    exts = (
+        extensions.ServerNameExtension("email.us-east-2.amazonaws.com"),
+        extensions.SignatureAlgorithmExtension((
+        signature_algorithms.RsaPkcs1Sha256,
+        signature_algorithms.RsaPkcs1Sha1,
+        signature_algorithms.EcdsaSecp256r1Sha256,
+        signature_algorithms.EcdsaSecp384r1Sha384
+        )),
+        extensions.ECPointFormatsExtension(),
+        extensions.ApplicationLayerProtocolNegotiationExtension((
+        constants.EXTENSION_ALPN_HTTP_1_1,
+        # constants.EXTENSION_ALPN_HTTP_2,
+        )),
+        extensions.SupportedGroupsExtension((ec_curves.SECP256R1(),)),
+        extensions.SupportedVersionsExtension((tls_version,)),
+        # extensions.SessionTicketExtension()
+        # extensions.SignedCertificateTimestampExtension(),
+        # extensions.StatusRequestExtension()
+    )
+  
+    cipher_suites = (
+        'ECDHE-ECDSA-AES256-GCM-SHA384',
+        'ECDHE-RSA-AES256-GCM-SHA384',
+        'ECDHE-RSA-AES256-SHA384',
+        'ECDHE-RSA-AES256-SHA',
+        'AES256-GCM-SHA384',
+        'AES256-SHA256',
+        'AES256-SHA',
+        'AES128-SHA',
+    )
+
+    ssl_key_logfile = os.getenv('SSLKEYLOGFILE')
+    proxy = Proxy("email.us-east-2.amazonaws.com", port, tls_version, cipher_suites, extensions=exts, match_hostname=True,
+                  ssl_key_logfile=ssl_key_logfile)
+    
+    message = "client_hello" + space + "None" + space + client_pub_key.hex()
     client.send_data(message.encode())
+    error, client_hello = client.recv_data().split(' ')
+    print("")
+    client_hello = bytes.fromhex(client_hello)
+    proxy.client_hello(client_hello)
+    record_bytes, hello_bytes = proxy.server_hello_1()
+    certificate_bytes = proxy.server_hello_2()
+    next_bytes = proxy.server_hello_3()
+    hello_done_bytes = proxy.server_hello_4()
+    print(len(record_bytes))
+    print(len(hello_bytes))
+    print(len(certificate_bytes))
+    print(len(next_bytes))
+    print(len(hello_done_bytes))
+    server_hello = record_bytes.hex() + '|' + hello_bytes.hex() + '|' + certificate_bytes.hex() + '|' + next_bytes.hex() + '|' + hello_done_bytes.hex()
+    message = "server_hello" + space + server_hello + space + client_pub_key.hex()
+    client.send_data(message.encode())
+    error, client_finish = client.recv_data().split(' ')
+    print("")
+    client_finish = bytes.fromhex(client_finish)
+    
+    proxy.client_finish(client_finish)
+    record, content = proxy.server_finish()
+    
+    server_finish = record.hex() + '|' + content.hex()
+    message = "server_finish" + space + server_finish + space + client_pub_key.hex()
+    client.send_data(message.encode())
+    
+    received_data = ""
+    stop = False
+    while True and not stop:
+        data_chunk = client.recv_data()
+        print("")
+        # If the received data is empty, it means the client has finished sending data
+        if len(data_chunk) == 0:
+            break
+        if len(data_chunk) < 1024:
+            stop = True
+        print(len(data_chunk))
+        # Append the received data to the overall received_data
+        received_data += data_chunk
+    error, encrypted_https_request = received_data.split(' ')
+    print("")
+    encrypted_https_request = bytes.fromhex(encrypted_https_request)
+
+    proxy.send_application_data(encrypted_https_request)
+    record, content = proxy.receive_application_data()  
+    print("")
+    final_response = record.hex() + '|' + content.hex()
+    message = "receive_application_data" + space + final_response + space + client_pub_key.hex()
+    client.send_data(message.encode())      
     error, response = client.recv_data().split(' ')
     print("")
-    #client.disconnect()
+    print("")
 
 def send_message(server_address, server_port, message):
     # Connect to the server
