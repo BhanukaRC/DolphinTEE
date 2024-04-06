@@ -208,6 +208,25 @@ def client_handler(args):
     client.send_data(message.encode())      
     error, response = client.recv_data().split(' ')
     print("")
+    message = "attest" + space + "None" + space + client_pub_key.hex()
+    client.send_data(message.encode())
+    received_data = ""
+    stop = False
+    while True and not stop:
+        data_chunk = client.recv_data()
+        print("")
+        # If the received data is empty, it means the client has finished sending data
+        if len(data_chunk) == 0:
+            break
+        if len(data_chunk) < 1024:
+            stop = True
+        print(len(data_chunk))
+        # Append the received data to the overall received_data
+        received_data += data_chunk
+    error, attest = received_data.split(' ')
+    print("")
+    attest = bytes.fromhex(attest)
+    print(attest)
     print("")
 
 def send_message(server_address, server_port, message):

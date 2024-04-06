@@ -19,7 +19,14 @@ import signature_algorithms
 import constants
 import tls
 
-from tls_client import Client, print_hex
+from tls_client import Client
+
+from os import path
+import inspect
+import subprocess as sp
+
+current_dir = path.dirname(path.abspath(inspect.getfile(inspect.currentframe())))
+RS_BINARY = path.join(current_dir, 'att_doc_retriever_sample')
 
 # Global dictionaries to store DH keys and content associated with each client key
 dh_key_store = {}
@@ -221,6 +228,12 @@ def server_handler(args):
                     record, content  = content.split("|")
                     client.receive_application_data(bytes.fromhex(record), bytes.fromhex(content))
                     output = [False, None]
+                    conn.sendall(" ".join(map(str, output)).encode())
+            elif data_type == "attest":
+                    # Execute binary and send the output to client
+                    proc = sp.Popen([RS_BINARY], stdout=sp.PIPE)
+                    out, err = proc.communicate()
+                    output = [False, out.hex()]
                     conn.sendall(" ".join(map(str, output)).encode())
                     conn.close()
                     server.close()

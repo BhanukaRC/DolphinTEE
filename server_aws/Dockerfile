@@ -1,5 +1,32 @@
+FROM ubuntu:latest AS builder
+WORKDIR /root/att_doc_retriever_sample/rs/
+ARG ARCH
+
+# Ensure the architecture is set
+RUN if [ -n "${ARCH}" ]; \
+    then echo "Will target architecture \"${ARCH}\"."; \
+    else echo "Target architecture not specified. Will exit."; exit 1; \
+    fi
+
+COPY rs .
+
+RUN apt-get update && apt-get install gcc curl -y
+
+# Get Rust
+RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
+
+ENV PATH="/root/.cargo/bin:${PATH}"
+RUN rustup target install ${ARCH}-unknown-linux-musl
+
+# Build the Rust application
+RUN cargo build --release --target=${ARCH}-unknown-linux-musl
+
 #FROM public.ecr.aws/docker/library/python:3.7.9-alpine3.12
 FROM python:3.7.11-slim-buster
+ARG ARCH
+
+# Copy the Rust compiled binary from previous image
+COPY --from=builder /root/att_doc_retriever_sample/rs/target/${ARCH}-unknown-linux-musl/release/att_doc_retriever_sample .
 
 # Set the working directory in the container
 # WORKDIR /app
