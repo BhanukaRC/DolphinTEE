@@ -1,3 +1,10 @@
 docker build -t server -f Dockerfile .
 nitro-cli build-enclave --docker-uri server --output-file server.eif
+
+# Before client side attestation
+
 nitro-cli run-enclave --eif-path server.eif --cpu-count 2 --memory 1024 --enclave-cid 10000 --debug-mode --attach-console
+
+# After client side attestation
+
+nitro-cli run-enclave --eif-path server.eif --cpu-count 2 --memory 1024 --enclave-cid 10000

@@ -18,7 +18,9 @@ import signature_algorithms
 import constants
 import tls
 
-from tls_proxy import Proxy, print_hex
+from tls_proxy import Proxy
+
+from attestation_verifier import verify_attestation_doc
 
 class VsockStream:
     client_private_key = None  # Store client's private key globally
@@ -225,15 +227,26 @@ def client_handler(args):
         received_data += data_chunk
     error, attestation_doc_b64 = received_data.split(' ')
     print("")
-    attest = base64.b64decode(attestation_doc_b64)
-    print(attest)
+    attestation_doc = base64.b64decode(attestation_doc_b64)
+    print(attestation_doc)
+    
+    # Get the root cert PEM content
+    with open('root.pem', 'r') as file:
+        root_cert_pem = file.read()
+    
+    
+    # Get PCR0 from command line parameter
     pcr0 = args.pcr0
     print(pcr0)
+    
     error, cypertext = client.recv_data().split(' ')
     print("")
     print(cypertext)
 
-    
+    try:
+        verify_attestation_doc(attestation_doc, pcrs = [pcr0], root_cert_pem = root_cert_pem)
+    except Exception as e:
+        print("error:", str(e))
 
 def send_message(server_address, server_port, message):
     # Connect to the server
