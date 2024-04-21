@@ -245,6 +245,7 @@ def client_handler(args):
 
     try:
         verify_attestation_doc(attestation_doc, pcrs = [pcr0], root_cert_pem = root_cert_pem)
+        print("attested the certificate")
     except Exception as e:
         print("error:", str(e))
 
