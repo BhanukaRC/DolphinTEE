@@ -21,18 +21,38 @@ import tls
 
 from tls_client import Client
 
-from os import path
-import inspect
-import subprocess as sp
-
-current_dir = path.dirname(path.abspath(inspect.getfile(inspect.currentframe())))
-RS_BINARY = path.join(current_dir, 'att_doc_retriever_sample')
+import cbor2
+from Crypto.PublicKey import RSA
+from Crypto.Cipher import PKCS1_OAEP
+from NsmUtil import NSMUtil
 
 # Global dictionaries to store DH keys and content associated with each client key
 dh_key_store = {}
 content_store = {}
 credentials_store = {}
 tls_connection_object_store: Dict[str, Client] = {}
+
+def encrypt(attestation_doc, plaintext):
+    """
+    Encrypt message using public key in attestation document
+    """
+
+    # Decode CBOR attestation document
+    data = cbor2.loads(attestation_doc)
+
+    # Load and decode document payload
+    doc = data[2]
+    doc_obj = cbor2.loads(doc)
+
+    # Get the public key from attestation document
+    public_key_byte = doc_obj['public_key']
+    public_key = RSA.import_key(public_key_byte)
+
+    # Encrypt the plaintext with the public key and encode the cipher text in base64
+    cipher = PKCS1_OAEP.new(public_key)
+    ciphertext = cipher.encrypt(str.encode(plaintext))
+
+    return base64.b64encode(ciphertext).decode()
 
 def server_handler(args):
     global dh_key_store
@@ -230,10 +250,31 @@ def server_handler(args):
                     output = [False, None]
                     conn.sendall(" ".join(map(str, output)).encode())
             elif data_type == "attest":
-                    # Execute binary and send the output to client
-                    proc = sp.Popen([RS_BINARY], stdout=sp.PIPE)
-                    out, err = proc.communicate()
-                    output = [False, out.hex()]
+                if client_key not in dh_key_store or dh_key_store[client_key] is None or dh_key_store[client_key][1] is None:
+                    output = [True, "Invalid DH Client Public Key"]
+                    conn.sendall(" ".join(map(str, output)).encode())
+                elif tls_connection_object_store[client_key] is None:
+                    output = [True, "TLS Connection Missing"]
+                    conn.sendall(" ".join(map(str, output)).encode())
+                else:
+                    # Initialise NSMUtil
+                    nsm_util = NSMUtil()
+                    attestation_doc = nsm_util.get_attestation_doc()
+                    print(attestation_doc)
+                    # Base64 encode the attestation doc
+                    attestation_doc_b64 = base64.b64encode(attestation_doc).decode()
+                    output = [False, attestation_doc_b64]
+                    conn.sendall(" ".join(map(str, output)).encode())
+                    shared_key = dh_key_store[client_key][1]
+                    shared_key_str = shared_key.hex()
+                    secret = shared_key_str + "_THIS IS A SECURED MESSAGE"
+                    ciphertext_b64 = encrypt(attestation_doc, secret)
+                    ciphertext = base64.b64decode(ciphertext_b64)
+                    plaintext = nsm_util.decrypt(ciphertext)
+                    print(plaintext, ciphertext_b64, secret)
+                    if plaintext == secret:
+                        print("encryption and decryption works!")
+                    output = [False, ciphertext_b64]
                     conn.sendall(" ".join(map(str, output)).encode())
                     conn.close()
                     server.close()

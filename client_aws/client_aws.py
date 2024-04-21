@@ -223,11 +223,17 @@ def client_handler(args):
         print(len(data_chunk))
         # Append the received data to the overall received_data
         received_data += data_chunk
-    error, attest = received_data.split(' ')
+    error, attestation_doc_b64 = received_data.split(' ')
     print("")
-    attest = bytes.fromhex(attest)
+    attest = base64.b64decode(attestation_doc_b64)
     print(attest)
+    pcr0 = args.pcr0
+    print(pcr0)
+    error, cypertext = client.recv_data().split(' ')
     print("")
+    print(cypertext)
+
+    
 
 def send_message(server_address, server_port, message):
     # Connect to the server
@@ -250,6 +256,7 @@ def main():
     parser = argparse.ArgumentParser(prog='client')
     parser.add_argument("server_cid", type=int, help="The CID of the enclave running the server")
     parser.add_argument("server_port", type=int, help="The port of the server")
+    parser.add_argument("pcr0", type=str, help="The PCR of the enclave")
 
     args = parser.parse_args()
 
