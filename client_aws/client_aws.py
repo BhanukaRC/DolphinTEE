@@ -80,6 +80,19 @@ class VsockStream:
         ciphertext = encryptor.update(data.encode()) + encryptor.finalize()
         return iv + ciphertext
 
+    def decrypt_data(self, content, shared_key):
+        print("shared_key", shared_key)
+        content = bytes.fromhex(content)
+        print("content", content)
+        iv = content[:16]  # Extract IV from the beginning of the ciphertext
+        ciphertext = content[16:]  # Extract ciphertext after the IV
+        cipher = Cipher(algorithms.AES(shared_key), modes.CTR(iv), backend=default_backend())
+        decryptor = cipher.decryptor()
+        plaintext = decryptor.update(ciphertext) + decryptor.finalize()
+        print("plaintext", plaintext)
+        plaintext = plaintext.decode()
+        print("plaintext", plaintext)
+                    
 def client_handler(args):
     client = VsockStream()
     endpoint = (args.server_cid, args.server_port)
@@ -249,6 +262,25 @@ def client_handler(args):
     except Exception as e:
         print("error:", str(e))
 
+    received_data = ""
+    stop = False
+    
+    while True and not stop:
+        data_chunk = client.recv_data()
+        print("")
+        # If the received data is empty, it means the client has finished sending data
+        if data_chunk is None or len(data_chunk) == 0:
+            break
+        if len(data_chunk) < 1024:
+            stop = True
+        print(len(data_chunk))
+        # Append the received data to the overall received_data
+        received_data += data_chunk
+    error, attestation_doc_b64_encrypted = received_data.split(' ')
+    print("")
+    print(attestation_doc_b64_encrypted)
+    client.decrypt_data(attestation_doc_b64_encrypted, full_dh_key)
+    
 def send_message(server_address, server_port, message):
     # Connect to the server
     print(server_address, server_port)

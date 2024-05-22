@@ -32,6 +32,14 @@ content_store = {}
 credentials_store = {}
 tls_connection_object_store: Dict[str, Client] = {}
 
+def encrypt_data_for_client(data, dh_key):
+        key = dh_key # Convert DH key to bytes
+        iv = os.urandom(16)  # Generate a random IV
+        cipher = Cipher(algorithms.AES(key), modes.CTR(iv), backend=default_backend())
+        encryptor = cipher.encryptor()
+        ciphertext = encryptor.update(data.encode()) + encryptor.finalize()
+        return iv + ciphertext
+    
 def encrypt(attestation_doc, plaintext):
     """
     Encrypt message using public key in attestation document
@@ -263,6 +271,8 @@ def server_handler(args):
                     print(attestation_doc)
                     # Base64 encode the attestation doc
                     attestation_doc_b64 = base64.b64encode(attestation_doc).decode()
+                    
+                    
                     output = [False, attestation_doc_b64]
                     conn.sendall(" ".join(map(str, output)).encode())
                     shared_key = dh_key_store[client_key][1]
@@ -276,6 +286,26 @@ def server_handler(args):
                         print("encryption and decryption works!")
                     output = [False, ciphertext_b64]
                     conn.sendall(" ".join(map(str, output)).encode())
+                    
+                    shared_key = dh_key_store[client_key][1]
+                    attested_and_encrypted = encrypt_data_for_client(ciphertext_b64, shared_key)
+                    
+                    print(attested_and_encrypted)
+                    print(shared_key)
+                    attested_and_encrypted = attested_and_encrypted.hex()
+                    print(attested_and_encrypted)
+
+                    output = [False, attested_and_encrypted]
+                    conn.sendall(" ".join(map(str, output)).encode())
+                    
+                    attested_and_encrypted = bytes.fromhex(attested_and_encrypted)
+                    iv = attested_and_encrypted[:16]  # Extract IV from the beginning of the ciphertext
+                    ciphertext = attested_and_encrypted[16:]  # Extract ciphertext after the IV
+                    cipher = Cipher(algorithms.AES(shared_key), modes.CTR(iv), backend=default_backend())
+                    decryptor = cipher.decryptor()
+                    plaintext = decryptor.update(ciphertext) + decryptor.finalize()
+                    print("plaintext", plaintext)
+                    
                     conn.close()
                     server.close()
         except ValueError:
