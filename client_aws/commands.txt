@@ -1,12 +1,12 @@
 #Before attestation verification
 
-python3 client_aws.py 10000 5001 <enclave-id>
+python3 client_aws.py 10000 5001 <PCR0>
 
 #After attestation verification
 
 chmod +x setup.sh
 chmod +x run_client.sh
 ./setup.sh 
-./run_client.sh 10000 5001 "<enclave-id>"
+./run_client.sh 10000 5001 "<PCR0>"
 
 

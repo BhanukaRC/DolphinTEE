@@ -303,6 +303,7 @@ class Client:
 
         decoded = self.cipher_suite.decrypt(**kwargs)
         result += decoded
+        print("received application data")
         print(result)
 
         if content_length is None:
