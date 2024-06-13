@@ -305,7 +305,8 @@ class Client:
         result += decoded
         print("received application data")
         print(result)
-
+        return result
+    
         if content_length is None:
             tmp = result.split(b'\r\n\r\n')[0]
             pos = tmp.find(b'Content-Length')

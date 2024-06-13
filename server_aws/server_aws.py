@@ -254,16 +254,22 @@ def server_handler(args):
                 else:
                     client = tls_connection_object_store[client_key]
                     record, content  = content.split("|")
-                    client.receive_application_data(bytes.fromhex(record), bytes.fromhex(content))
-                    output = [False, None]
+                    decrypted_result = client.receive_application_data(bytes.fromhex(record), bytes.fromhex(content))
+                    print(decrypted_result)
+                    decrypted_result = base64.b64encode(decrypted_result)
+                    print(decrypted_result)
+                    decrypted_result = decrypted_result.hex()
+                    shared_key = dh_key_store[client_key][1]
+                    encrypted_response = encrypt_data_for_client(decrypted_result, shared_key)
+                    output = [False, encrypted_response.hex()]
                     conn.sendall(" ".join(map(str, output)).encode())
             elif data_type == "attest":
                 if client_key not in dh_key_store or dh_key_store[client_key] is None or dh_key_store[client_key][1] is None:
                     output = [True, "Invalid DH Client Public Key"]
                     conn.sendall(" ".join(map(str, output)).encode())
-                elif tls_connection_object_store[client_key] is None:
-                    output = [True, "TLS Connection Missing"]
-                    conn.sendall(" ".join(map(str, output)).encode())
+                #elif tls_connection_object_store[client_key] is None:
+                #    output = [True, "TLS Connection Missing"]
+                #    conn.sendall(" ".join(map(str, output)).encode())
                 else:
                     # Initialise NSMUtil
                     nsm_util = NSMUtil()
@@ -306,8 +312,8 @@ def server_handler(args):
                     plaintext = decryptor.update(ciphertext) + decryptor.finalize()
                     print("plaintext", plaintext)
                     
-                    conn.close()
-                    server.close()
+                    #conn.close()
+                    #server.close()
         except ValueError:
             # If split fails due to incomplete data, keep receiving until complete
             while True and len(incoming) > 0:
