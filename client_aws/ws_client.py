@@ -31,10 +31,12 @@ class VsockStream:
         self.sock.settimeout(self.conn_tmo)
         self.sock.connect(endpoint)
         self.pcr = pcr_val
-        
+        print(f"[INFO] Connected to endpoint {endpoint} with PCR value {pcr_val}")
+
     def send_data(self, data):
         """Send data to a remote endpoint"""
         self.sock.sendall(data)
+        print(f"[INFO] Sent data to the TEE: {data}")
 
     def recv_data(self):
         """Receive data from a remote endpoint"""
@@ -42,150 +44,134 @@ class VsockStream:
             data = self.sock.recv(1024).decode()
             if not data:
                 break
-            print(data, end='', flush=True)
+            #print(data, end='', flush=True)
             return data
         print()
 
     def disconnect(self):
         """Close the client socket"""
         self.sock.close()
+        print("[INFO] Disconnected from the endpoint")
 
     async def handle_action(self, websocket, path):
         space = " "
+        none = "None"
         async for message in websocket:
-            print(f"Received: {message}")
-            data = json.loads(message)  
+            print(f"[INFO] Received message from WebSocket: {message}")
+            data = json.loads(message)
             if isinstance(data, list) and len(data) > 0:
                 action = data[0]
                 content = data[1]
-                
+
                 if action == "generate_dh_key":
-                    self.client_pub_key = data[1]
-                    print("client pub key", self.client_pub_key)
-                    
+                    self.client_pub_key = content
+                    print(f"[INFO] Client public key: {self.client_pub_key}")
+
                     # Initiate key generation at the Enclave
-                    message = "generate" + space + "None" + space + self.client_pub_key
+                    message = f"generate{space}{none}{space}{self.client_pub_key}"
                     self.send_data(message.encode())
                     error, server_pub_key = self.recv_data().split(' ')
-                    print("")
-                    print(server_pub_key)
-                    
-                    # Initiate shared key calculation at the Enclave
-                    message = "calculate" + space + "None" + space + self.client_pub_key
+                    print(f"[INFO] Server public key: {server_pub_key}")
+
+                    message = f"calculate{space}{none}{space}{self.client_pub_key}"
                     self.send_data(message.encode())
                     error, response = self.recv_data().split(' ')
-                    print("")
+                    print(f"[INFO] Server calculated the shared key")
                     response = {"status": "success", "key": "server_public_key", "data": server_pub_key}
-                
+
                 elif action == "pcr":
                     # Send PCR0 to client
                     response = {"status": "success", "key": "pcr", "data": self.pcr}
-                    
+
                 elif action == "attest":
-                    
                     # Request for the attestation document
-                    print("client pub key", self.client_pub_key)
-                    
-                    message = "attest" + space + "None" + space + self.client_pub_key
+                    message = f"attest{space}{none}{space}{self.client_pub_key}"
                     self.send_data(message.encode())
                     received_data = ""
                     stop = False
                     while True and not stop:
                         data_chunk = self.recv_data()
-                        print("")
+                        #print("")
                         # If the received data is empty, it means the client has finished sending data
                         if len(data_chunk) == 0:
                             break
                         if len(data_chunk) < 1024:
                             stop = True
-                        print(len(data_chunk))
+                        #print(len(data_chunk))
                         # Append the received data to the overall received_data
                         received_data += data_chunk
+
+                    
                     error, attestation_doc_b64 = received_data.split(' ')
-                    print("")
                     attestation_doc = base64.b64decode(attestation_doc_b64)
-                    print(attestation_doc)
+                    print(f"[INFO] Attestation document: {attestation_doc}")
                     
                     error, cypertext = self.recv_data().split(' ')
-                    print("")
-                    print(cypertext)
-                    
                     received_data = ""
                     stop = False
                     while True and not stop:
                         data_chunk = self.recv_data()
-                        print("")
+                        #print("")
                         # If the received data is empty, it means the client has finished sending data
                         if data_chunk is None or len(data_chunk) == 0:
                             break
                         if len(data_chunk) < 1024:
                             stop = True
-                        print(len(data_chunk))
+                        #print(len(data_chunk))
                         # Append the received data to the overall received_data
                         received_data += data_chunk
-                    error, attestation_doc_b64_encrypted = received_data.split(' ')
-                    print("")
-                    print(attestation_doc_b64_encrypted)
-                    
+
                     response = {"status": "success", "key": "attest", "data": attestation_doc_b64}
-                    
+
                 elif action == "receive_data":
                     encrypted_data = content
-                    
+
                     # Pass the encrypted data to the Enclave
-                    message = "decrypt_content" + space + encrypted_data + space + self.client_pub_key
+                    message = f"decrypt_content{space}{encrypted_data}{space}{self.client_pub_key}"
                     self.send_data(message.encode())
                     error, response = self.recv_data().split(' ')
-                    print("")
-                    response = {"status": "success", "key": "receive_data" }
-                
+                    print(f"[INFO] Server received the content")
+                    response = {"status": "success", "key": "receive_data"}
+
                 elif action == "credentials":
                     encrypted_data = content
-                    
+
                     # Pass the encrypted credentials to the Enclave
-                    message = "credentials" + space + encrypted_data + space + self.client_pub_key
+                    message = f"credentials{space}{encrypted_data}{space}{self.client_pub_key}"
                     self.send_data(message.encode())
                     error, response = self.recv_data().split(' ')
-                    print("")
-                    response = {"status": "success", "key": "credentials" }
-                        
+                    print(f"[INFO] Server received the credentials")
+                    response = {"status": "success", "key": "credentials"}
+
                 elif action == "client_hello":
-                    # initiate TLS key generation at the Enclave
-                    
-                    message = "client_hello" + space + "None" + space + self.client_pub_key
+                    # Initiate TLS key generation at the Enclave
+                    message = f"client_hello{space}{none}{space}{self.client_pub_key}"
                     self.send_data(message.encode())
                     error, client_hello = self.recv_data().split(' ')
-                    print("6")
-                    print("client_hello", client_hello)
-                    #Error here. may be read again for something not read
-                    
+                    print(f"[INFO] Client hello: {client_hello}")
+
                     client_hello = bytes.fromhex(client_hello)
-                    
-                    # initiate TLS connection
-                    
+
+                    # Initiate TLS connection
                     port = 443
                     tls_version = tls.TLSV1_2()
 
                     exts = (
                         extensions.ServerNameExtension("email.us-east-2.amazonaws.com"),
                         extensions.SignatureAlgorithmExtension((
-                        signature_algorithms.RsaPkcs1Sha256,
-                        signature_algorithms.RsaPkcs1Sha1,
-                        signature_algorithms.EcdsaSecp256r1Sha256,
-                        signature_algorithms.EcdsaSecp384r1Sha384
+                            signature_algorithms.RsaPkcs1Sha256,
+                            signature_algorithms.RsaPkcs1Sha1,
+                            signature_algorithms.EcdsaSecp256r1Sha256,
+                            signature_algorithms.EcdsaSecp384r1Sha384
                         )),
                         extensions.ECPointFormatsExtension(),
                         extensions.ApplicationLayerProtocolNegotiationExtension((
-                        constants.EXTENSION_ALPN_HTTP_1_1,
-                        # constants.EXTENSION_ALPN_HTTP_2,
+                            constants.EXTENSION_ALPN_HTTP_1_1,
                         )),
                         extensions.SupportedGroupsExtension((ec_curves.SECP256R1(),)),
-                        extensions.SupportedVersionsExtension((tls_version,)),
-                        # extensions.SessionTicketExtension()
-                        # extensions.SignedCertificateTimestampExtension(),
-                        # extensions.StatusRequestExtension()
+                        extensions.SupportedVersionsExtension((tls_version,))
                     )
-                
+
                     cipher_suites = (
                         'ECDHE-ECDSA-AES256-GCM-SHA384',
                         'ECDHE-RSA-AES256-GCM-SHA384',
@@ -198,86 +184,82 @@ class VsockStream:
                     )
 
                     ssl_key_logfile = os.getenv('SSLKEYLOGFILE')
-                    proxy = Proxy("email.us-east-2.amazonaws.com", port, tls_version, cipher_suites, extensions=exts, match_hostname=True,
-                        ssl_key_logfile=ssl_key_logfile)
-                    
+                    proxy = Proxy("email.us-east-2.amazonaws.com", port, tls_version, cipher_suites, extensions=exts, match_hostname=True, ssl_key_logfile=ssl_key_logfile)
+
                     proxy.client_hello(client_hello)
-                    
+
                     record_bytes, hello_bytes = proxy.server_hello_1()
                     certificate_bytes = proxy.server_hello_2()
                     next_bytes = proxy.server_hello_3()
                     hello_done_bytes = proxy.server_hello_4()
-                    
-                    print(len(record_bytes))
-                    print(len(hello_bytes))
-                    print(len(certificate_bytes))
-                    print(len(next_bytes))
-                    print(len(hello_done_bytes))
-                    
-                    server_hello = record_bytes.hex() + '|' + hello_bytes.hex() + '|' + certificate_bytes.hex() + '|' + next_bytes.hex() + '|' + hello_done_bytes.hex()
-                    message = "server_hello" + space + server_hello + space + self.client_pub_key
+
+                    print(f"[INFO] Server hello part lengths: {len(record_bytes)}, {len(hello_bytes)}, {len(certificate_bytes)}, {len(next_bytes)}, {len(hello_done_bytes)}")
+
+                    server_hello = f"{record_bytes.hex()}|{hello_bytes.hex()}|{certificate_bytes.hex()}|{next_bytes.hex()}|{hello_done_bytes.hex()}"
+                    message = f"server_hello{space}{server_hello}{space}{self.client_pub_key}"
                     self.send_data(message.encode())
                     error, client_finish = self.recv_data().split(' ')
-                    print("")
-                    
+                    print(f"[INFO] Client finish: {client_finish}")
                     client_finish = bytes.fromhex(client_finish)
                     proxy.client_finish(client_finish)
                     record, content = proxy.server_finish()
-                    
-                    server_finish = record.hex() + '|' + content.hex()
-                    message = "server_finish" + space + server_finish + space + self.client_pub_key
+
+                    server_finish = f"{record.hex()}|{content.hex()}"
+                    message = f"server_finish{space}{server_finish}{space}{self.client_pub_key}"
                     self.send_data(message.encode())
-                    
+
                     received_data = ""
                     stop = False
                     while True and not stop:
                         data_chunk = self.recv_data()
-                        print("")
+                        #print("")
                         # If the received data is empty, it means the client has finished sending data
                         if len(data_chunk) == 0:
                             break
                         if len(data_chunk) < 1024:
                             stop = True
-                        print(len(data_chunk))
+                        #print(len(data_chunk))
                         # Append the received data to the overall received_data
                         received_data += data_chunk
+
                     error, encrypted_https_request = received_data.split(' ')
-                    print("")
+                    print(f"[INFO] Encrypted HTTP request: {encrypted_https_request}")
                     encrypted_https_request = bytes.fromhex(encrypted_https_request)
 
                     proxy.send_application_data(encrypted_https_request)
-                    record, content = proxy.receive_application_data()  
-                    print("")
-                    final_response = record.hex() + '|' + content.hex()
-                    message = "receive_application_data" + space + final_response + space + self.client_pub_key
+                    record, content = proxy.receive_application_data()
+                    final_response = f"{record.hex()}|{content.hex()}"
+                    print(f"[INFO] TLS Encrypted HTTP response: {final_response}")
+                    message = f"receive_application_data{space}{final_response}{space}{self.client_pub_key}"
                     self.send_data(message.encode())
 
                     received_data = ""
                     stop = False
                     while True and not stop:
                         data_chunk = self.recv_data()
-                        print("")
+                        #print("")
                         # If the received data is empty, it means the client has finished sending data
                         if len(data_chunk) == 0:
                             break
                         if len(data_chunk) < 1024:
                             stop = True
-                        print(len(data_chunk))
+                        #print(len(data_chunk))
                         # Append the received data to the overall received_data
                         received_data += data_chunk
 
                     error, encrypted_response = received_data.split(' ')
-                    print(" ")
+                    print(f"[INFO] TLS Decrypted but Shared-key Encrypted HTTP response: {encrypted_response}")
                     response = {"status": "success", "data": encrypted_response, "key": "email_response"}
                 else:
                     response = {"status": "error", "data": "Unknown action"}
             else:
                 response = {"status": "error", "data": "Invalid message format"}
             await websocket.send(json.dumps(response))
+            print(f"[INFO] Sent response via WebSocket: {response}")
 
     async def ws_server(self, port=8080):
         server = await websockets.serve(self.handle_action, "0.0.0.0", port)
-        print(f"WebSocket server is running on ws://0.0.0.0:{port}")
+        print(f"[INFO] WebSocket server is running on ws://0.0.0.0:{port}")
         await server.wait_closed()
 
 def main():
