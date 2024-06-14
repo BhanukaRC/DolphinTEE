@@ -11,7 +11,7 @@ The project mainly demonstrates the programme the callee of Dolphin should run i
 - **ws_server.py**: The WebSocket server.
 
 - **run_aws_client.sh**: Script to run the client_aws.py.
-- **client_aws.py**: This script was used to communicate with the Enclave and mocking the Dolphin client actions, while running in the same EC2 where the Enclave is. This is redundant now since the local setup with websocket connections with the EC2 was introduced. It is also outdated now. But kept in the repository for demonstration purposes.
+- **client_aws.py**: This script was used to communicate with the Enclave and mocking the Dolphin client actions, while running in the same EC2 where the Enclave is. This is redundant now since the local setup with websocket connections with the EC2 was introduced. It is slightly outdated but works compatibly with the Enclave running code. 
 
 Most of the other files are used for the TLS handshake. Rest of the files were used by the now outdated client_aws.py for attestation document verification.
 
