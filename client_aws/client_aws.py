@@ -3,6 +3,11 @@
 # Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+# This script was used to communicate with the Enclave and mocking the Dolphin client actions, while running in the same EC2 where the Enclave is
+# This is redundant now since the local setup with websocket connections with the EC2 was introduced.
+
+# The script is a little outdated as of now.
+
 import argparse
 import socket
 import zlib

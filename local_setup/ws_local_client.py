@@ -16,9 +16,8 @@ from Crypto.Cipher import PKCS1_OAEP
 
 client_private_key = None
 shared_key = None
-pcr0 = None
 #PCR2 can be precalculated or calculated later when internet connection restores
-pcr2 = "6d1abc2527bb4ec3b84e7aa737260d4307cee7d037ed9059e788ebabbf6c5659d99644fa83a3c4df692d178cc925ab35"
+pcr2 = "9c1c25d7a4cb5781b628bff9c8e1f9b08756040ebaf8bb5e795ad2c82d658d84db6f9440582d578fd1c60050aa6b8241"
 
 def generate_dh_key():
     global client_private_key
@@ -57,12 +56,13 @@ def decrypt_data(content, shared_key, b64_encoded=False):
     return plaintext.decode()
 
 async def perform_task():
-    uri = "ws://18.209.12.37:8080"
+    uri = "ws://34.233.120.247:8080"
     async with websockets.connect(uri) as websocket:
         print("[INFO] Connected to the server")
 
         start_time = time.time()
         
+        # Client side key generation
         client_pub_key = generate_dh_key().hex()
         await websocket.send(json.dumps(["generate_dh_key", client_pub_key]))
         response = json.loads(await websocket.recv())
@@ -70,18 +70,8 @@ async def perform_task():
 
         if response.get("status") == "success" and response.get("key") == "server_public_key":
             server_pub_key = bytes.fromhex(response["data"])
+            # Calculate the shared key for encryption/decryption
             generate_full_dh_key(server_pub_key)
-            
-            await websocket.send(json.dumps(["pcr", "None"]))
-            response = json.loads(await websocket.recv())
-            print(f"[INFO] Server response (PCR0): {response}")
-            global pcr0
-            pcr0 = response["data"]
-            
-            if pcr0.strip('0') == '':
-                # Running on debug mode
-                print(f"[ERROR] Enclave running on debug mode!")
-                sys.exit(0)
             
             await websocket.send(json.dumps(["attest", "None"]))
             response = json.loads(await websocket.recv())
@@ -89,19 +79,11 @@ async def perform_task():
 
             if response.get("status") == "success" and response.get("key") == "attest":
                 attestation_doc_b64 = decrypt_data(response["data"], shared_key, True)
+                
+                # Received the attestation document from the TEE
                 attestation_doc = base64.b64decode(attestation_doc_b64)
                 print("[INFO] Attestation document received")
 
-                with open('root.pem', 'r') as file:
-                    root_cert_pem = file.read()
-
-                try:
-                    verify_attestation_doc(attestation_doc, pcrs=[pcr0], root_cert_pem=root_cert_pem)
-                    print("[INFO] Attestation successful")
-                except Exception as e:
-                    print(f"[ERROR] Attestation failed: {e}")
-                    sys.exit(0)
-                
                 data = cbor2.loads(attestation_doc)
                 # Load and decode document payload
                 doc = data[2]
@@ -109,53 +91,95 @@ async def perform_task():
                 pcrs = doc_obj['pcrs']
                 
                 if pcrs[2].hex() != pcr2:
+                    # PCR2 is a hash of the TEE-running code
+                    # 1. The client can either precalculate it
+                    # 2. Calculate on the spot with locally installed nitro-cli
+                    # 3. Do the check afterwards the communication is done to check whether the caller was legit
+                    # For the demonstration, we are going with option 1 which is hardcoded in the script
                     print(f"[ERROR] Server is not running the expected code")
                     sys.exit(0)
                 
+                pcr0 = pcrs[0].hex()
+                print(f"[INFO] PCR0: {pcr0}")
+                if pcr0.strip('0') == '':
+                    # PCR0 being all zeros imply that the Nitro Enclave is running on debug mode (not secure enough)
+                    print(f"[ERROR] Enclave running on debug mode!")
+                    sys.exit(0)
+            
+                with open('root.pem', 'r') as file:
+                    root_cert_pem = file.read()
+
+                # Verify the legitamicy of the attestation document 
+                try:
+                    verify_attestation_doc(attestation_doc, pcrs=[pcr0], root_cert_pem=root_cert_pem)
+                    print("[INFO] Attestation successful")
+                except Exception as e:
+                    print(f"[ERROR] Attestation failed: {e}")
+                    sys.exit(0)
+                
+                # Extract public key of the attestation document
                 public_key_byte = doc_obj['public_key']
                 public_key = RSA.import_key(public_key_byte)
 
-                # Encrypt the plaintext with the public key and encode the cipher text in base64
-                cipher = PKCS1_OAEP.new(public_key)
+                # secret = shared_key + some_random_message
                 shared_key_str = shared_key.hex()
-                secret = shared_key_str + "_THIS IS A SECURED MESSAGE"
+                secret = shared_key_str + "_THIS IS A RANDOM MESSAGE"
+                
+                # Encrypt the plaintext secret with the public key of the attestation document
+                cipher = PKCS1_OAEP.new(public_key)
                 ciphertext = cipher.encrypt(str.encode(secret))
                 ciphertext_b64 = base64.b64encode(ciphertext).decode()
                 print(f"[INFO] Ciphertext in Base64: {ciphertext_b64}")
+                
+                # Then encrypt the resulting cipher text with the shared key
                 encrypted_secret = encrypt_data(ciphertext_b64, shared_key)
+                
+                # The sent text is basically our secret double encrypted.
+                # First by the public key of the attestation document
+                # Second by the shared key
                 await websocket.send(json.dumps(["secret_decryption", encrypted_secret.hex()]))
                 response = json.loads(await websocket.recv())
                 print(f"[INFO] Server response (secret decryption): {response}")
 
                 if response.get("status") == "success" and response.get("key") == "secret_decryption":
+                    # response["data"] = the secret we sent decrypted by the TEE and re-encrypted with the shared key
                     actual_secret = decrypt_data(response["data"], shared_key, True)
                     if actual_secret == secret:
                         print(f"[INFO] Server successfully decrypted the secret")
                     else:
                         print(f"[ERROR] Server is not running the expected code")
                         sys.exit(0)
-                     
-                encrypted_content = encrypt_data("Hello from client", shared_key)
+                
+                # Server is legit. We can send the data with confidence     
+                
+                # Email body (encrypted with shared key)
+                encrypted_content = encrypt_data("Hello, this is the Dolphin client sending an email!", shared_key)
                 await websocket.send(json.dumps(["receive_data", encrypted_content.hex()]))
                 response = json.loads(await websocket.recv())
                 print(f"[INFO] Server response (receive data): {response}")
 
                 if response.get("status") == "success" and response.get("key") == "receive_data":
+                    # Credentials (encrypted with shared key)
+                    # client email | AWS SES id token | AWS SES access token | receiver email
                     encrypted_credentials = encrypt_data("bhanukadolphin@gmail.com|AKIAUET47FSVJDPSNS6K|8QmJcpkHSzK5DJbkDcKmAFWtj/VY9FKxpwxo/91Q|bhanukarc@gmail.com", shared_key)
                     await websocket.send(json.dumps(["credentials", encrypted_credentials.hex()]))
                     response = json.loads(await websocket.recv())
                     print(f"[INFO] Server response (credentials): {response}")
 
                     if response.get("status") == "success" and response.get("key") == "credentials":
+                        
+                        # Initiate the email sending
                         await websocket.send(json.dumps(["client_hello", "None"]))
                         response = json.loads(await websocket.recv())
                         print(f"[INFO] Server response (client hello): {response}")
 
                         if response.get("status") == "success" and response.get("key") == "email_response":
+                            # The HTTP response send by the email server (ex: Gmail) but encrypted with the shared key
                             actual_response = decrypt_data(response["data"], shared_key, True)
                             actual_response = base64.b64decode(bytes.fromhex(actual_response))
                             print("[INFO] Email response received")
 
+                            # Check the status of the email
                             response_str = actual_response.decode('utf-8')
                             if "HTTP/1.1 200 OK" in response_str:
                                 print("[INFO] Status is 200")

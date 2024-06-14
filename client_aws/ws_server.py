@@ -23,15 +23,13 @@ class VsockStream:
         self.conn_tmo = conn_tmo
         self.sock = None
         self.client_pub_key = None
-        self.pcr = None
 
-    def connect(self, endpoint, pcr_val):
+    def connect(self, endpoint):
         """Connect to the remote endpoint"""
         self.sock = socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM)
         self.sock.settimeout(self.conn_tmo)
         self.sock.connect(endpoint)
-        self.pcr = pcr_val
-        print(f"[INFO] Connected to endpoint {endpoint} with PCR value {pcr_val}")
+        print(f"[INFO] Connected to endpoint {endpoint}")
 
     def send_data(self, data):
         """Send data to a remote endpoint"""
@@ -78,10 +76,6 @@ class VsockStream:
                     error, response = self.recv_data().split(' ')
                     print(f"[INFO] Server calculated the shared key")
                     response = {"status": "success", "key": "server_public_key", "data": server_pub_key}
-
-                elif action == "pcr":
-                    # Send PCR0 to client
-                    response = {"status": "success", "key": "pcr", "data": self.pcr}
 
                 elif action == "attest":
                     # Request for the attestation document
@@ -260,13 +254,12 @@ def main():
     parser = argparse.ArgumentParser(prog='client')
     parser.add_argument("server_cid", type=int, help="The CID of the enclave running the server")
     parser.add_argument("server_port", type=int, help="The port of the server")
-    parser.add_argument("pcr0", type=str, help="The PCR of the enclave")
 
     args = parser.parse_args()
 
     client = VsockStream()
     endpoint = (args.server_cid, args.server_port)
-    client.connect(endpoint, args.pcr0)
+    client.connect(endpoint)
 
     # Run the WebSocket server
     asyncio.run(client.ws_server())
