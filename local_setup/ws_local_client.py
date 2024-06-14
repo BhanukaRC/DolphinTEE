@@ -1,4 +1,5 @@
 import asyncio
+import sys
 import websockets
 import json
 import os
@@ -9,10 +10,15 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 from attestation_verifier import verify_attestation_doc
 import time
+import cbor2
+from Crypto.PublicKey import RSA
+from Crypto.Cipher import PKCS1_OAEP
 
 client_private_key = None
 shared_key = None
 pcr0 = None
+#PCR2 can be precalculated or calculated later when internet connection restores
+pcr2 = "6d1abc2527bb4ec3b84e7aa737260d4307cee7d037ed9059e788ebabbf6c5659d99644fa83a3c4df692d178cc925ab35"
 
 def generate_dh_key():
     global client_private_key
@@ -51,7 +57,7 @@ def decrypt_data(content, shared_key, b64_encoded=False):
     return plaintext.decode()
 
 async def perform_task():
-    uri = "ws://54.165.67.63:8080"
+    uri = "ws://18.209.12.37:8080"
     async with websockets.connect(uri) as websocket:
         print("[INFO] Connected to the server")
 
@@ -72,12 +78,17 @@ async def perform_task():
             global pcr0
             pcr0 = response["data"]
             
+            if pcr0.strip('0') == '':
+                # Running on debug mode
+                print(f"[ERROR] Enclave running on debug mode!")
+                sys.exit(0)
+            
             await websocket.send(json.dumps(["attest", "None"]))
             response = json.loads(await websocket.recv())
             print(f"[INFO] Server response (attestation): {response}")
 
             if response.get("status") == "success" and response.get("key") == "attest":
-                attestation_doc_b64 = response["data"]
+                attestation_doc_b64 = decrypt_data(response["data"], shared_key, True)
                 attestation_doc = base64.b64decode(attestation_doc_b64)
                 print("[INFO] Attestation document received")
 
@@ -89,8 +100,41 @@ async def perform_task():
                     print("[INFO] Attestation successful")
                 except Exception as e:
                     print(f"[ERROR] Attestation failed: {e}")
-                    raise e
+                    sys.exit(0)
+                
+                data = cbor2.loads(attestation_doc)
+                # Load and decode document payload
+                doc = data[2]
+                doc_obj = cbor2.loads(doc)
+                pcrs = doc_obj['pcrs']
+                
+                if pcrs[2].hex() != pcr2:
+                    print(f"[ERROR] Server is not running the expected code")
+                    sys.exit(0)
+                
+                public_key_byte = doc_obj['public_key']
+                public_key = RSA.import_key(public_key_byte)
 
+                # Encrypt the plaintext with the public key and encode the cipher text in base64
+                cipher = PKCS1_OAEP.new(public_key)
+                shared_key_str = shared_key.hex()
+                secret = shared_key_str + "_THIS IS A SECURED MESSAGE"
+                ciphertext = cipher.encrypt(str.encode(secret))
+                ciphertext_b64 = base64.b64encode(ciphertext).decode()
+                print(f"[INFO] Ciphertext in Base64: {ciphertext_b64}")
+                encrypted_secret = encrypt_data(ciphertext_b64, shared_key)
+                await websocket.send(json.dumps(["secret_decryption", encrypted_secret.hex()]))
+                response = json.loads(await websocket.recv())
+                print(f"[INFO] Server response (secret decryption): {response}")
+
+                if response.get("status") == "success" and response.get("key") == "secret_decryption":
+                    actual_secret = decrypt_data(response["data"], shared_key, True)
+                    if actual_secret == secret:
+                        print(f"[INFO] Server successfully decrypted the secret")
+                    else:
+                        print(f"[ERROR] Server is not running the expected code")
+                        sys.exit(0)
+                     
                 encrypted_content = encrypt_data("Hello from client", shared_key)
                 await websocket.send(json.dumps(["receive_data", encrypted_content.hex()]))
                 response = json.loads(await websocket.recv())

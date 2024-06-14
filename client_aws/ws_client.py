@@ -102,27 +102,21 @@ class VsockStream:
                         received_data += data_chunk
 
                     
-                    error, attestation_doc_b64 = received_data.split(' ')
-                    attestation_doc = base64.b64decode(attestation_doc_b64)
-                    print(f"[INFO] Attestation document: {attestation_doc}")
+                    error, attestation_doc_b64_encrypted = received_data.split(' ')
+                    print(f"[INFO] Encrypted Attestation document received")
                     
-                    error, cypertext = self.recv_data().split(' ')
-                    received_data = ""
-                    stop = False
-                    while True and not stop:
-                        data_chunk = self.recv_data()
-                        #print("")
-                        # If the received data is empty, it means the client has finished sending data
-                        if data_chunk is None or len(data_chunk) == 0:
-                            break
-                        if len(data_chunk) < 1024:
-                            stop = True
-                        #print(len(data_chunk))
-                        # Append the received data to the overall received_data
-                        received_data += data_chunk
+                    response = {"status": "success", "key": "attest", "data": attestation_doc_b64_encrypted}
 
-                    response = {"status": "success", "key": "attest", "data": attestation_doc_b64}
+                elif action == "secret_decryption":
+                    encrypted_secret = content
 
+                    # Pass the encrypted secret to the Enclave
+                    message = f"secret_decryption{space}{encrypted_secret}{space}{self.client_pub_key}"
+                    self.send_data(message.encode())
+                    error, response = self.recv_data().split(' ')
+                    print(f"[INFO] Server decrypted the secret")
+                    response = {"status": "success", "key": "secret_decryption", "data": response}
+                    
                 elif action == "receive_data":
                     encrypted_data = content
 
