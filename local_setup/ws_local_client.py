@@ -13,12 +13,19 @@ import time
 import cbor2
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_OAEP
+from dotenv import load_dotenv
+
+load_dotenv()
 
 client_private_key = None
 shared_key = None
 #PCR2 can be precalculated or calculated later when internet connection restores
-pcr2 = "9c1c25d7a4cb5781b628bff9c8e1f9b08756040ebaf8bb5e795ad2c82d658d84db6f9440582d578fd1c60050aa6b8241"
+pcr2 = os.getenv('PCR2')
 
+def read_file(filename):
+    with open(filename , "r") as f:
+        return f.read()
+    
 def generate_dh_key():
     global client_private_key
     print("[INFO] Generating ECDH public key...")
@@ -56,7 +63,8 @@ def decrypt_data(content, shared_key, b64_encoded=False):
     return plaintext.decode()
 
 async def perform_task():
-    uri = "ws://34.233.120.247:8080"
+    ec2_ip = os.getenv('IP_ADDRESS')
+    uri = f"ws://{ec2_ip}:8080"
     async with websockets.connect(uri) as websocket:
         print("[INFO] Connected to the server")
 
@@ -153,7 +161,9 @@ async def perform_task():
                 # Server is legit. We can send the data with confidence     
                 
                 # Email body (encrypted with shared key)
-                encrypted_content = encrypt_data("Hello, this is the Dolphin client sending an email!", shared_key)
+                length = int(os.getenv('LENGTH'))
+                sent_data = read_file('data.txt')[:length]
+                encrypted_content = encrypt_data(sent_data, shared_key)
                 await websocket.send(json.dumps(["receive_data", encrypted_content.hex()]))
                 response = json.loads(await websocket.recv())
                 print(f"[INFO] Server response (receive data): {response}")
@@ -193,7 +203,7 @@ async def perform_task():
 
 async def main():
     total_time = 0
-    num_runs = 10
+    num_runs = int(os.getenv('ROUNDS'))
 
     for _ in range(num_runs):
         elapsed_time = await perform_task()
