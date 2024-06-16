@@ -28,6 +28,7 @@ Most of the other files are used for orchestrating the TLS handshake.
     - docker build -t server -f Dockerfile .
     - nitro-cli build-enclave --docker-uri server --output-file server.eif
 6. Copy the PCR2 value and use it to replace the hardcoded PCR2 value in the local_setup/ws_local_client.py
+7. Create an inbound-rule to accept TCP traffic from port 8080 for the security group that belongs to your EC2. 
 
 ## Running the application
 
