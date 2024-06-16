@@ -81,6 +81,9 @@ def server_handler(args):
             data_type, content, client_key = None, None, None
             if len(incoming) > 0:
                 data_type, content, client_key = incoming.split(" ")
+                if len(client_key) != 64:
+                    data_type, content, client_key = None, None, None
+                    raise ValueError("Invalid client key length")
                 print(f"[INFO] Received - Type: {data_type}, Content: {content}, Client Key: {client_key}")
                 incoming = ''
             if data_type == "generate":
@@ -117,6 +120,62 @@ def server_handler(args):
                     content_store[client_key] = ''
                     output = [False, None]
                     conn.sendall(" ".join(map(str, output)).encode())
+            
+            elif data_type == "attest":
+                if client_key not in dh_key_store or dh_key_store[client_key] is None or dh_key_store[client_key][1] is None:
+                    output = [True, "Invalid DH Client Public Key"]
+                    conn.sendall(" ".join(map(str, output)).encode())
+                else:
+                    # Initialise NSMUtil
+                    nsm_util = NSMUtil()
+                    attestation_doc = nsm_util.get_attestation_doc()
+                    nsm_util_store[client_key] = nsm_util
+                    print(f"[INFO] Attestation document: {attestation_doc}")
+                    # Base64 encode the attestation doc
+                    attestation_doc_b64 = base64.b64encode(attestation_doc).decode()
+                    
+                    shared_key = dh_key_store[client_key][1]
+                    shared_key_str = shared_key.hex()
+                    secret = shared_key_str + "_THIS IS A SECURED MESSAGE"
+                    ciphertext_b64 = encrypt(attestation_doc, secret)
+                    ciphertext = base64.b64decode(ciphertext_b64)
+                    plaintext = nsm_util.decrypt(ciphertext)
+                    print(f"[INFO] Plaintext: {plaintext}, Ciphertext (Base64): {ciphertext_b64}, Secret: {secret}")
+                    if plaintext == secret:
+                        print("[INFO] Encryption and decryption works!")
+                    
+                    attestation_doc_encrypted = encrypt_data_for_client(attestation_doc_b64, shared_key)
+                    
+                    print(f"[INFO] Attestation document encrypted: {attestation_doc_encrypted.hex()}")
+                    output = [False, attestation_doc_encrypted.hex()]
+                    conn.sendall(" ".join(map(str, output)).encode())
+                    
+            elif data_type == "secret_decryption":
+                if client_key not in dh_key_store or dh_key_store[client_key] is None or dh_key_store[client_key][1] is None:
+                    output = [True, "Invalid DH Client Public Key"]
+                    conn.sendall(" ".join(map(str, output)).encode())
+                else:
+                    shared_key = dh_key_store[client_key][1]
+                    content = bytes.fromhex(content)
+                    iv = content[:16]  # Extract IV from the beginning of the ciphertext
+                    ciphertext = content[16:]  # Extract ciphertext after the IV
+                    cipher = Cipher(algorithms.AES(shared_key), modes.CTR(iv), backend=default_backend())
+                    decryptor = cipher.decryptor()
+                    plaintext = decryptor.update(ciphertext) + decryptor.finalize()
+                    # secret encrypted with attestation doc public key
+                    ciphertext_b64 = plaintext.decode()
+                    
+                    nsm_util = nsm_util_store[client_key]
+                    ciphertext = base64.b64decode(ciphertext_b64)
+                    actual_secret = nsm_util.decrypt(ciphertext)
+                    print(f"[INFO] Plaintext: {actual_secret}, Ciphertext (Base64): {ciphertext_b64}")
+                    
+                    secret_reencrypted = encrypt_data_for_client(actual_secret, shared_key)
+                    
+                    print(f"[INFO] Decrypted and re-encrypted secret: {secret_reencrypted.hex()}")
+                    output = [False, secret_reencrypted.hex()]
+                    conn.sendall(" ".join(map(str, output)).encode())
+                    
             elif data_type == "decrypt_content":
                 if client_key not in dh_key_store or dh_key_store[client_key] is None or dh_key_store[client_key][1] is None:
                     output = [True, "Invalid DH Client Public Key"]
@@ -261,60 +320,7 @@ def server_handler(args):
                     output = [False, encrypted_response.hex()]
                     conn.sendall(" ".join(map(str, output)).encode())
 
-            elif data_type == "attest":
-                if client_key not in dh_key_store or dh_key_store[client_key] is None or dh_key_store[client_key][1] is None:
-                    output = [True, "Invalid DH Client Public Key"]
-                    conn.sendall(" ".join(map(str, output)).encode())
-                else:
-                    # Initialise NSMUtil
-                    nsm_util = NSMUtil()
-                    attestation_doc = nsm_util.get_attestation_doc()
-                    nsm_util_store[client_key] = nsm_util
-                    print(f"[INFO] Attestation document: {attestation_doc}")
-                    # Base64 encode the attestation doc
-                    attestation_doc_b64 = base64.b64encode(attestation_doc).decode()
-                    
-                    shared_key = dh_key_store[client_key][1]
-                    shared_key_str = shared_key.hex()
-                    secret = shared_key_str + "_THIS IS A SECURED MESSAGE"
-                    ciphertext_b64 = encrypt(attestation_doc, secret)
-                    ciphertext = base64.b64decode(ciphertext_b64)
-                    plaintext = nsm_util.decrypt(ciphertext)
-                    print(f"[INFO] Plaintext: {plaintext}, Ciphertext (Base64): {ciphertext_b64}, Secret: {secret}")
-                    if plaintext == secret:
-                        print("[INFO] Encryption and decryption works!")
-                    
-                    attestation_doc_encrypted = encrypt_data_for_client(attestation_doc_b64, shared_key)
-                    
-                    print(f"[INFO] Attestation document encrypted: {attestation_doc_encrypted.hex()}")
-                    output = [False, attestation_doc_encrypted.hex()]
-                    conn.sendall(" ".join(map(str, output)).encode())
-                    
-            elif data_type == "secret_decryption":
-                if client_key not in dh_key_store or dh_key_store[client_key] is None or dh_key_store[client_key][1] is None:
-                    output = [True, "Invalid DH Client Public Key"]
-                    conn.sendall(" ".join(map(str, output)).encode())
-                else:
-                    shared_key = dh_key_store[client_key][1]
-                    content = bytes.fromhex(content)
-                    iv = content[:16]  # Extract IV from the beginning of the ciphertext
-                    ciphertext = content[16:]  # Extract ciphertext after the IV
-                    cipher = Cipher(algorithms.AES(shared_key), modes.CTR(iv), backend=default_backend())
-                    decryptor = cipher.decryptor()
-                    plaintext = decryptor.update(ciphertext) + decryptor.finalize()
-                    # secret encrypted with attestation doc public key
-                    ciphertext_b64 = plaintext.decode()
-                    
-                    nsm_util = nsm_util_store[client_key]
-                    ciphertext = base64.b64decode(ciphertext_b64)
-                    actual_secret = nsm_util.decrypt(ciphertext)
-                    print(f"[INFO] Plaintext: {actual_secret}, Ciphertext (Base64): {ciphertext_b64}")
-                    
-                    secret_reencrypted = encrypt_data_for_client(actual_secret, shared_key)
-                    
-                    print(f"[INFO] Decrypted and re-encrypted secret: {secret_reencrypted.hex()}")
-                    output = [False, secret_reencrypted.hex()]
-                    conn.sendall(" ".join(map(str, output)).encode())
+            
                     
                     #conn.close()
                     #server.close()

@@ -87,7 +87,7 @@ class VsockStream:
                         data_chunk = self.recv_data()
                         #print("")
                         # If the received data is empty, it means the client has finished sending data
-                        if len(data_chunk) == 0:
+                        if data_chunk is None or len(data_chunk) == 0:
                             break
                         if len(data_chunk) < 1024:
                             stop = True
@@ -202,7 +202,7 @@ class VsockStream:
                         data_chunk = self.recv_data()
                         #print("")
                         # If the received data is empty, it means the client has finished sending data
-                        if len(data_chunk) == 0:
+                        if data_chunk is None or len(data_chunk) == 0:
                             break
                         if len(data_chunk) < 1024:
                             stop = True
@@ -227,7 +227,7 @@ class VsockStream:
                         data_chunk = self.recv_data()
                         #print("")
                         # If the received data is empty, it means the client has finished sending data
-                        if len(data_chunk) == 0:
+                        if data_chunk is None or len(data_chunk) == 0:
                             break
                         if len(data_chunk) < 1024:
                             stop = True
