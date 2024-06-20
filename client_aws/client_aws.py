@@ -23,16 +23,28 @@ import signature_algorithms
 import constants
 import tls
 import cbor2
-
+import sys
 from tls_proxy import Proxy
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_OAEP
 
 from attestation_verifier import verify_attestation_doc
+from dotenv import load_dotenv
 
+load_dotenv()
+pcr2 = os.getenv('PCR2')
+
+def read_file(filename):
+    with open(filename , "r") as f:
+        return f.read()
+    
+def custom_print(*args, **kwargs):
+    if os.getenv('ENABLE_PRINTS') == 'True':
+        print(*args, **kwargs)
 class VsockStream:
     client_private_key = None  # Store client's private key globally
 
+            
     """Client"""
     def __init__(self, conn_tmo=5):
         self.conn_tmo = conn_tmo
@@ -42,22 +54,22 @@ class VsockStream:
         self.sock = socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM)
         self.sock.settimeout(self.conn_tmo)
         self.sock.connect(endpoint)
-        print(f"[INFO] Connected to endpoint {endpoint}")
+        custom_print(f"[INFO] Connected to endpoint {endpoint}")
 
     def send_data(self, data):
         """Send data to a remote endpoint"""
         self.sock.sendall(data)
-        print(f"[INFO] Sent data: {data}")
+        custom_print(f"[INFO] Sent data: {data}")
 
     def generate_dh_key(self):
         global client_private_key
-        print("[INFO] Generating ECDH public key...")
+        custom_print("[INFO] Generating ECDH public key...")
         private_key = PrivateKey.from_hex(os.urandom(32).hex())
         pub_key = private_key.public_key.format()
         sendable_data = pub_key + zlib.crc32(pub_key).to_bytes(4, byteorder='big')
         b64_data = base64.b64encode(sendable_data)
         client_private_key = private_key.secret
-        print(f"[INFO] Public key generated: {sendable_data.hex()} Length: {len(b64_data)}")
+        custom_print(f"[INFO] Public key generated: {sendable_data.hex()} Length: {len(b64_data)}")
         return pub_key
 
     def recv_data(self):
@@ -67,18 +79,18 @@ class VsockStream:
             if not data:
                 break
             return data
-        print()
+        custom_print()
 
     def disconnect(self):
         """Close the client socket"""
         self.sock.close()
-        print("[INFO] Disconnected from the endpoint")
+        custom_print("[INFO] Disconnected from the endpoint")
 
     def generate_full_dh_key(self, server_key):
         private_key_obj = PrivateKey(client_private_key)
         peer_public_key_obj = PublicKey(server_key)
         shared_key = private_key_obj.ecdh(peer_public_key_obj.public_key)
-        print(f"[INFO] Shared key established: {shared_key.hex()}")
+        custom_print(f"[INFO] Shared key established: {shared_key.hex()}")
         return shared_key
 
     def encrypt_data(self, data, dh_key):
@@ -137,12 +149,27 @@ def client_handler(client):
     pcrs = doc_obj['pcrs']
     pcr0 = pcrs[0].hex()
 
+    if pcr0.strip('0') == '':
+        # PCR0 being all zeros imply that the Nitro Enclave is running on debug mode (not secure enough)
+        custom_print(f"[ERROR] Enclave running on debug mode!")
+        sys.exit(0)
+    
+    if pcrs[2].hex() != pcr2:
+        # PCR2 is a hash of the TEE-running code
+        # 1. The client can either precalculate it
+        # 2. Calculate on the spot with locally installed nitro-cli
+        # 3. Do the check afterwards the communication is done to check whether the caller was legit
+        # For the demonstration, we are going with option 1 which is hardcoded in the script
+        custom_print(f"[ERROR] Server is not running the expected code")
+        sys.exit(0)
+                                    
     try:
         verify_attestation_doc(attestation_doc, pcrs=[pcr0], root_cert_pem=root_cert_pem)
-        print("[INFO] Attestation verified")
+        custom_print("[INFO] Attestation verified")
     except Exception as e:
-        print(f"[ERROR] Attestation verification failed: {e}")
+        custom_print(f"[ERROR] Attestation verification failed: {e}")
 
+    
     public_key_byte = doc_obj['public_key']
     public_key = RSA.import_key(public_key_byte)
 
@@ -158,17 +185,18 @@ def client_handler(client):
     error, ciphertext = client.recv_data().split(' ')
     decrypted_secret = client.decrypt_data(ciphertext, full_dh_key)
     if decrypted_secret == secret:
-        print("[INFO] Secret decryption successful")
+        custom_print("[INFO] Secret decryption successful")
     else:
-        print("[ERROR] Secret decryption failed")
+        custom_print("[ERROR] Secret decryption failed")
 
-    data_to_send = "Hello, Server!"
+    length = int(os.getenv('LENGTH'))
+    data_to_send = read_file('data.txt')[:length]
     encrypted_data = client.encrypt_data(data_to_send, full_dh_key)
     message = f"decrypt_content{space}{encrypted_data.hex()}{space}{client_pub_key.hex()}"
     client.send_data(message.encode())
     client.recv_data()
 
-    cred = "bhanukadolphin@gmail.com|AKIAUET47FSVJDPSNS6K|8QmJcpkHSzK5DJbkDcKmAFWtj/VY9FKxpwxo/91Q|bhanukarc@gmail.com"
+    cred = f"{os.getenv('SENDER_EMAIL')}|{os.getenv('SMTP_USERNAME')}|{os.getenv('SMPT_PASSEORD')}|{os.getenv('RECEIVER_EMAIL')}"
     encrypted_cred = client.encrypt_data(cred, full_dh_key)
     message = f"credentials{space}{encrypted_cred.hex()}{space}{client_pub_key.hex()}"
     client.send_data(message.encode())
@@ -259,7 +287,7 @@ def client_handler(client):
         received_data += data_chunk
 
     error, response = received_data.split(' ')
-    print(f"[INFO] Final response: {response}")
+    custom_print(f"[INFO] Final response: {response}")
 
 def send_message(server_address, server_port, message):
     addr = (server_address, server_port)
@@ -277,7 +305,7 @@ def main():
     args = parser.parse_args()
     
     total_time = 0
-    num_runs = 10
+    num_runs = int(os.getenv('ROUNDS'))
     client = VsockStream()
     endpoint = (args.server_cid, args.server_port)
     client.connect(endpoint)
@@ -288,12 +316,12 @@ def main():
         end_time = time.time()
         elapsed_time = end_time - start_time
         total_time += elapsed_time
-        print(f"[INFO] Elapsed time for run {_+1}: {elapsed_time} seconds")
+        custom_print(f"[INFO] Elapsed time for run {_+1}: {elapsed_time} seconds")
 
     client.disconnect()
 
     average_time = total_time / num_runs
-    print(f"[INFO] Average elapsed time over {num_runs} runs: {average_time} seconds")
+    custom_print(f"[INFO] Average elapsed time over {num_runs} runs: {average_time} seconds")
 
 if __name__ == "__main__":
     main()

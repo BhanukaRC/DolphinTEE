@@ -13,7 +13,14 @@ from cryptography.hazmat.primitives.hashes import SHA256
 
 import hashlib
 import hmac
+from dotenv import load_dotenv
 
+load_dotenv()
+
+def custom_print(*args, **kwargs):
+    if os.getenv('ENABLE_PRINTS') == 'True':
+        print(*args, **kwargs)
+              
 def print_hex(b):
     return ':'.join('{:02X}'.format(a) for a in b)
 
@@ -21,9 +28,9 @@ def print_hex(b):
 def log(fun):
     def run(*args, **kwargs):
         fun_name = ' '.join(map(lambda x: x[0].upper() + x[1:], fun.__name__.split('_')))
-        print(fun_name + ' Begin')
+        custom_print(fun_name + ' Begin')
         result = fun(*args, **kwargs)
-        print(fun_name + ' End')
+        custom_print(fun_name + ' End')
         return result
 
     return run
@@ -63,7 +70,7 @@ class Client:
         if self.debug:
             message = '{color_begin}{message}{color_end}'.format(color_begin=bcolors.OKGREEN, message=message,
                                                                  color_end=bcolors.ENDC)
-            print(prefix, title, message)
+            custom_print(prefix, title, message)
 
     def record(self, content_type, data, *, tls_version=None):
         return record(content_type, tls_version or self.tls_version, data)
@@ -132,7 +139,7 @@ class Client:
             self.server_certificate = get_certificate(certificate_bytes, open(cached_cert_path, 'wb+'),
                                                       match_hostname=self.match_hostname, host=self.host)
             
-            print("certificate", self.server_certificate, "\n")
+            custom_print("certificate", self.server_certificate, "\n")
         elif os.path.exists(cached_cert_path):
             self.server_certificate = load(open(cached_cert_path, 'rb'))
             next_bytes = certificate_bytes
@@ -143,7 +150,7 @@ class Client:
                                                     self.server_certificate, server_cipher_suite)
         self.messages.append(next_bytes)
         self.is_server_key_exchange = next_bytes[:1] == b'\x0c'
-        print("is_server_key_exchange", self.is_server_key_exchange)
+        custom_print("is_server_key_exchange", self.is_server_key_exchange)
         if self.is_server_key_exchange:  # Server key exchange
             self.cipher_suite.parse_key_exchange_params(next_bytes)
             self.messages.append(hello_done_bytes)
@@ -157,7 +164,7 @@ class Client:
         self.debug_print('Server cert not after (UTC)', self.server_certificate.not_valid_after_utc)
         self.debug_print('Server cert fingerprint (sha256)', print_hex(self.server_certificate.fingerprint(SHA256())))
         if self.is_server_key_exchange:
-            print("Server Public Key Received")
+            custom_print("Server Public Key Received")
             public_key = self.cipher_suite.key_exchange.public_key
             self.debug_print('Key Exchange Server Public Key ({!s} bytes)'.format(len(public_key)),
                              print_hex(public_key))
@@ -272,7 +279,7 @@ class Client:
             content_length=str(len(payload)),
         )
         
-        print(data)
+        custom_print(data)
         
         kwargs = {
             'content_bytes': data.encode(),
@@ -303,8 +310,8 @@ class Client:
 
         decoded = self.cipher_suite.decrypt(**kwargs)
         result += decoded
-        print("received application data")
-        print(result)
+        custom_print("received application data")
+        custom_print(result)
         return result
     
         if content_length is None:

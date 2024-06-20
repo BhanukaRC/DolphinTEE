@@ -3,3 +3,4 @@ coincurve==15.0.0
 cryptography==42.0.5
 pycryptodome==3.9.9
 cbor2==5.2.0
+python-dotenv

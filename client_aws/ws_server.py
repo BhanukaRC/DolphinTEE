@@ -18,6 +18,14 @@ import constants
 import tls
 from tls_proxy import Proxy
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
+def custom_print(*args, **kwargs):
+    if os.getenv('ENABLE_PRINTS') == 'True':
+        print(*args, **kwargs)
+        
 class VsockStream:
     def __init__(self, conn_tmo=5):
         self.conn_tmo = conn_tmo
@@ -29,12 +37,12 @@ class VsockStream:
         self.sock = socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM)
         self.sock.settimeout(self.conn_tmo)
         self.sock.connect(endpoint)
-        print(f"[INFO] Connected to endpoint {endpoint}")
+        custom_print(f"[INFO] Connected to endpoint {endpoint}")
 
     def send_data(self, data):
         """Send data to a remote endpoint"""
         self.sock.sendall(data)
-        print(f"[INFO] Sent data to the TEE: {data}")
+        custom_print(f"[INFO] Sent data to the TEE: {data}")
 
     def recv_data(self):
         """Receive data from a remote endpoint"""
@@ -42,20 +50,20 @@ class VsockStream:
             data = self.sock.recv(1024).decode()
             if not data:
                 break
-            #print(data, end='', flush=True)
+            #custom_print(data, end='', flush=True)
             return data
-        print()
+        custom_print()
 
     def disconnect(self):
         """Close the client socket"""
         self.sock.close()
-        print("[INFO] Disconnected from the endpoint")
+        custom_print("[INFO] Disconnected from the endpoint")
 
     async def handle_action(self, websocket, path):
         space = " "
         none = "None"
         async for message in websocket:
-            print(f"[INFO] Received message from WebSocket: {message}")
+            custom_print(f"[INFO] Received message from WebSocket: {message}")
             data = json.loads(message)
             if isinstance(data, list) and len(data) > 0:
                 action = data[0]
@@ -63,18 +71,18 @@ class VsockStream:
 
                 if action == "generate_dh_key":
                     self.client_pub_key = content
-                    print(f"[INFO] Client public key: {self.client_pub_key}")
+                    custom_print(f"[INFO] Client public key: {self.client_pub_key}")
 
                     # Initiate key generation at the Enclave
                     message = f"generate{space}{none}{space}{self.client_pub_key}"
                     self.send_data(message.encode())
                     error, server_pub_key = self.recv_data().split(' ')
-                    print(f"[INFO] Server public key: {server_pub_key}")
+                    custom_print(f"[INFO] Server public key: {server_pub_key}")
 
                     message = f"calculate{space}{none}{space}{self.client_pub_key}"
                     self.send_data(message.encode())
                     error, response = self.recv_data().split(' ')
-                    print(f"[INFO] Server calculated the shared key")
+                    custom_print(f"[INFO] Server calculated the shared key")
                     response = {"status": "success", "key": "server_public_key", "data": server_pub_key}
 
                 elif action == "attest":
@@ -85,19 +93,19 @@ class VsockStream:
                     stop = False
                     while True and not stop:
                         data_chunk = self.recv_data()
-                        #print("")
+                        #custom_print("")
                         # If the received data is empty, it means the client has finished sending data
                         if len(data_chunk) == 0:
                             break
                         if len(data_chunk) < 1024:
                             stop = True
-                        #print(len(data_chunk))
+                        #custom_print(len(data_chunk))
                         # Append the received data to the overall received_data
                         received_data += data_chunk
 
                     
                     error, attestation_doc_b64_encrypted = received_data.split(' ')
-                    print(f"[INFO] Encrypted Attestation document received")
+                    custom_print(f"[INFO] Encrypted Attestation document received")
                     
                     response = {"status": "success", "key": "attest", "data": attestation_doc_b64_encrypted}
 
@@ -108,7 +116,7 @@ class VsockStream:
                     message = f"secret_decryption{space}{encrypted_secret}{space}{self.client_pub_key}"
                     self.send_data(message.encode())
                     error, response = self.recv_data().split(' ')
-                    print(f"[INFO] Server decrypted the secret")
+                    custom_print(f"[INFO] Server decrypted the secret")
                     response = {"status": "success", "key": "secret_decryption", "data": response}
                     
                 elif action == "receive_data":
@@ -118,7 +126,7 @@ class VsockStream:
                     message = f"decrypt_content{space}{encrypted_data}{space}{self.client_pub_key}"
                     self.send_data(message.encode())
                     error, response = self.recv_data().split(' ')
-                    print(f"[INFO] Server received the content")
+                    custom_print(f"[INFO] Server received the content")
                     response = {"status": "success", "key": "receive_data"}
 
                 elif action == "credentials":
@@ -128,7 +136,7 @@ class VsockStream:
                     message = f"credentials{space}{encrypted_data}{space}{self.client_pub_key}"
                     self.send_data(message.encode())
                     error, response = self.recv_data().split(' ')
-                    print(f"[INFO] Server received the credentials")
+                    custom_print(f"[INFO] Server received the credentials")
                     response = {"status": "success", "key": "credentials"}
 
                 elif action == "client_hello":
@@ -136,7 +144,7 @@ class VsockStream:
                     message = f"client_hello{space}{none}{space}{self.client_pub_key}"
                     self.send_data(message.encode())
                     error, client_hello = self.recv_data().split(' ')
-                    print(f"[INFO] Client hello: {client_hello}")
+                    custom_print(f"[INFO] Client hello: {client_hello}")
 
                     client_hello = bytes.fromhex(client_hello)
 
@@ -181,13 +189,13 @@ class VsockStream:
                     next_bytes = proxy.server_hello_3()
                     hello_done_bytes = proxy.server_hello_4()
 
-                    print(f"[INFO] Server hello part lengths: {len(record_bytes)}, {len(hello_bytes)}, {len(certificate_bytes)}, {len(next_bytes)}, {len(hello_done_bytes)}")
+                    custom_print(f"[INFO] Server hello part lengths: {len(record_bytes)}, {len(hello_bytes)}, {len(certificate_bytes)}, {len(next_bytes)}, {len(hello_done_bytes)}")
 
                     server_hello = f"{record_bytes.hex()}|{hello_bytes.hex()}|{certificate_bytes.hex()}|{next_bytes.hex()}|{hello_done_bytes.hex()}"
                     message = f"server_hello{space}{server_hello}{space}{self.client_pub_key}"
                     self.send_data(message.encode())
                     error, client_finish = self.recv_data().split(' ')
-                    print(f"[INFO] Client finish: {client_finish}")
+                    custom_print(f"[INFO] Client finish: {client_finish}")
                     client_finish = bytes.fromhex(client_finish)
                     proxy.client_finish(client_finish)
                     record, content = proxy.server_finish()
@@ -200,24 +208,24 @@ class VsockStream:
                     stop = False
                     while True and not stop:
                         data_chunk = self.recv_data()
-                        #print("")
+                        #custom_print("")
                         # If the received data is empty, it means the client has finished sending data
                         if len(data_chunk) == 0:
                             break
                         if len(data_chunk) < 1024:
                             stop = True
-                        #print(len(data_chunk))
+                        #custom_print(len(data_chunk))
                         # Append the received data to the overall received_data
                         received_data += data_chunk
 
                     error, encrypted_https_request = received_data.split(' ')
-                    print(f"[INFO] Encrypted HTTP request: {encrypted_https_request}")
+                    custom_print(f"[INFO] Encrypted HTTP request: {encrypted_https_request}")
                     encrypted_https_request = bytes.fromhex(encrypted_https_request)
 
                     proxy.send_application_data(encrypted_https_request)
                     record, content = proxy.receive_application_data()
                     final_response = f"{record.hex()}|{content.hex()}"
-                    print(f"[INFO] TLS Encrypted HTTP response: {final_response}")
+                    custom_print(f"[INFO] TLS Encrypted HTTP response: {final_response}")
                     message = f"receive_application_data{space}{final_response}{space}{self.client_pub_key}"
                     self.send_data(message.encode())
 
@@ -225,29 +233,29 @@ class VsockStream:
                     stop = False
                     while True and not stop:
                         data_chunk = self.recv_data()
-                        #print("")
+                        #custom_print("")
                         # If the received data is empty, it means the client has finished sending data
                         if len(data_chunk) == 0:
                             break
                         if len(data_chunk) < 1024:
                             stop = True
-                        #print(len(data_chunk))
+                        #custom_print(len(data_chunk))
                         # Append the received data to the overall received_data
                         received_data += data_chunk
 
                     error, encrypted_response = received_data.split(' ')
-                    print(f"[INFO] TLS Decrypted but Shared-key Encrypted HTTP response: {encrypted_response}")
+                    custom_print(f"[INFO] TLS Decrypted but Shared-key Encrypted HTTP response: {encrypted_response}")
                     response = {"status": "success", "data": encrypted_response, "key": "email_response"}
                 else:
                     response = {"status": "error", "data": "Unknown action"}
             else:
                 response = {"status": "error", "data": "Invalid message format"}
             await websocket.send(json.dumps(response))
-            print(f"[INFO] Sent response via WebSocket: {response}")
+            custom_print(f"[INFO] Sent response via WebSocket: {response}")
 
     async def ws_server(self, port=8080):
         server = await websockets.serve(self.handle_action, "0.0.0.0", port)
-        print(f"[INFO] WebSocket server is running on ws://0.0.0.0:{port}")
+        custom_print(f"[INFO] WebSocket server is running on ws://0.0.0.0:{port}")
         await server.wait_closed()
 
 def main():

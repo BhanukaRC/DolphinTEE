@@ -10,7 +10,14 @@ import ec_curves
 import signature_algorithms
 import tls
 
+from dotenv import load_dotenv
 
+load_dotenv()
+
+def custom_print(*args, **kwargs):
+    if os.getenv('ENABLE_PRINTS') == 'True':
+        print(*args, **kwargs)
+            
 class KeyExchange(ABC):
 
     def __init__(self, tls_version, client_random, server_random, server_cert, signature_algorithm):
@@ -44,7 +51,7 @@ class ECDH(KeyExchange):
 
         pubkey_length, data_bytes = int.from_bytes(data_bytes[:1], 'big'), data_bytes[1:]
         self.public_key, data_bytes = data_bytes[:pubkey_length], data_bytes[pubkey_length:]
-        print("Server Public Key Saved", self.public_key)
+        custom_print("Server Public Key Saved", self.public_key)
 
         if self.tls_version >= tls.TLSV1_2:
             signature_algorithm, data_bytes = signature_algorithms.SignatureAlgorithm.get_by_code(
@@ -61,7 +68,7 @@ class ECDH(KeyExchange):
         signature_algorithm.verify(signature, check_content)
 
     def exchange(self):
-        print("ECDH Exchange called")
+        custom_print("ECDH Exchange called")
         key = ec.generate_private_key(
             curve=self.name_curved.curve,
             backend=default_backend(),
@@ -70,19 +77,19 @@ class ECDH(KeyExchange):
             serialization.Encoding.DER,
             serialization.PublicFormat.SubjectPublicKeyInfo
         )
-        print("Client Private Key Generated", key.private_bytes(
+        custom_print("Client Private Key Generated", key.private_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.TraditionalOpenSSL,
             encryption_algorithm=serialization.NoEncryption()
         ))
         der = key.public_key().public_bytes(*args)
-        print("Client Public Key Generated", der.hex())
+        custom_print("Client Public Key Generated", der.hex())
         info = PublicKeyInfo.load(der)
         header = der[:len(der) - len(self.public_key)]
         server_public_key = serialization.load_der_public_key(header + self.public_key, default_backend())
-        print("Server Public Key", server_public_key)
+        custom_print("Server Public Key", server_public_key)
         shared_key = key.exchange(ec.ECDH(), server_public_key)
-        print("Shared Key Generated", shared_key.hex())
+        custom_print("Shared Key Generated", shared_key.hex())
         return shared_key, len(info['public_key'].native).to_bytes(1, 'big'), info['public_key'].native
 
 

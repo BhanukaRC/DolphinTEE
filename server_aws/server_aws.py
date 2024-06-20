@@ -21,6 +21,9 @@ import cbor2
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_OAEP
 from NsmUtil import NSMUtil
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Global dictionaries to store DH keys and content associated with each client key
 dh_key_store = {}
@@ -29,6 +32,10 @@ credentials_store = {}
 nsm_util_store = {}
 tls_connection_object_store: Dict[str, Client] = {}
 
+def custom_print(*args, **kwargs):
+    if os.getenv('ENABLE_PRINTS') == 'True':
+        print(*args, **kwargs)
+        
 def encrypt_data_for_client(data, dh_key):
     key = dh_key  # Convert DH key to bytes
     iv = os.urandom(16)  # Generate a random IV
@@ -69,10 +76,10 @@ def server_handler(args):
     server.bind((socket.VMADDR_CID_ANY, args.port))
     server.listen(1024)
     
-    print(f"[INFO] Server listening on port {args.port}")
+    custom_print(f"[INFO] Server listening on port {args.port}")
 
     (conn, (remote_cid, remote_port)) = server.accept()
-    print(f"[INFO] Connection accepted from CID {remote_cid}, port {remote_port}")
+    custom_print(f"[INFO] Connection accepted from CID {remote_cid}, port {remote_port}")
 
     incoming = ''
     while True:
@@ -81,17 +88,17 @@ def server_handler(args):
             data_type, content, client_key = None, None, None
             if len(incoming) > 0:
                 data_type, content, client_key = incoming.split(" ")
-                print(f"[INFO] Received - Type: {data_type}, Content: {content}, Client Key: {client_key}")
+                custom_print(f"[INFO] Received - Type: {data_type}, Content: {content}, Client Key: {client_key}")
                 incoming = ''
             if data_type == "generate":
                 if client_key not in dh_key_store or dh_key_store[client_key] is None:
-                    print("[INFO] Generating ECDH public part...")
+                    custom_print("[INFO] Generating ECDH public part...")
                     private_key = PrivateKey.from_hex(os.urandom(32).hex())
                     pub_key = private_key.public_key.format()
-                    print(f"[INFO] Public key: {pub_key.hex()}")
+                    custom_print(f"[INFO] Public key: {pub_key.hex()}")
                     sendable_data = pub_key + zlib.crc32(pub_key).to_bytes(4, byteorder='big')
                     b64_data = base64.b64encode(sendable_data)
-                    print(f"[INFO] Public part {sendable_data.hex()} Length: {len(b64_data)}")
+                    custom_print(f"[INFO] Public part {sendable_data.hex()} Length: {len(b64_data)}")
                     server_private_key = private_key.secret
                     dh_key_store[client_key] = [server_private_key, None]
                     output = [False, pub_key.hex()]
@@ -111,7 +118,7 @@ def server_handler(args):
                     private_key_obj = PrivateKey(dh_key_store[client_key][0])
                     peer_public_key_obj = PublicKey(client_key_in_bytes)
                     shared_key = private_key_obj.ecdh(peer_public_key_obj.public_key)
-                    print(f"[INFO] Shared key: {shared_key.hex()}")
+                    custom_print(f"[INFO] Shared key: {shared_key.hex()}")
                     temp = dh_key_store[client_key]
                     temp[1] = shared_key
                     content_store[client_key] = ''
@@ -123,7 +130,7 @@ def server_handler(args):
                     conn.sendall(" ".join(map(str, output)).encode())
                 else:
                     shared_key = dh_key_store[client_key][1]
-                    print(f"[INFO] Shared key: {shared_key.hex()}")
+                    custom_print(f"[INFO] Shared key: {shared_key.hex()}")
                     content = bytes.fromhex(content)
                     iv = content[:16]  # Extract IV from the beginning of the ciphertext
                     ciphertext = content[16:]  # Extract ciphertext after the IV
@@ -131,7 +138,7 @@ def server_handler(args):
                     decryptor = cipher.decryptor()
                     plaintext = decryptor.update(ciphertext) + decryptor.finalize()
                     plaintext = plaintext.decode()
-                    print(f"[INFO] Decrypted content: {plaintext}")
+                    custom_print(f"[INFO] Decrypted content: {plaintext}")
                     current = content_store[client_key]
                     current += plaintext
                     content_store[client_key] = current
@@ -150,7 +157,7 @@ def server_handler(args):
                     decryptor = cipher.decryptor()
                     plaintext = decryptor.update(ciphertext) + decryptor.finalize()
                     plaintext = plaintext.decode()
-                    print(f"[INFO] Credentials: {plaintext}")
+                    custom_print(f"[INFO] Credentials: {plaintext}")
                     credentials_store[client_key] = plaintext
                     output = [False, None]
                     conn.sendall(" ".join(map(str, output)).encode())
@@ -208,11 +215,11 @@ def server_handler(args):
                 else:
                     client = tls_connection_object_store[client_key]
                     record_bytes, hello_bytes, certificate_bytes, next_bytes, hello_done_bytes = content.split('|')
-                    print(len(bytes.fromhex(record_bytes)))
-                    print(len(bytes.fromhex(hello_bytes)))
-                    print(len(bytes.fromhex(certificate_bytes)))
-                    print(len(bytes.fromhex(next_bytes)))
-                    print(len(bytes.fromhex(hello_done_bytes)))
+                    custom_print(len(bytes.fromhex(record_bytes)))
+                    custom_print(len(bytes.fromhex(hello_bytes)))
+                    custom_print(len(bytes.fromhex(certificate_bytes)))
+                    custom_print(len(bytes.fromhex(next_bytes)))
+                    custom_print(len(bytes.fromhex(hello_done_bytes)))
                     client.server_hello(bytes.fromhex(record_bytes), bytes.fromhex(hello_bytes), bytes.fromhex(certificate_bytes), bytes.fromhex(next_bytes), bytes.fromhex(hello_done_bytes))
                     client_finish = client.client_finish()
                     tls_connection_object_store[client_key] = client
@@ -233,9 +240,9 @@ def server_handler(args):
                     plaintext = credentials_store[client_key]
                     credentials = plaintext.split('|')
                     sender_email, sender_username, sender_password, receiver_email = credentials[0], credentials[1], credentials[2], credentials[3]
-                    print(f"[INFO] Sender Email: {sender_email}, Username: {sender_username}, Password: {sender_password}, Receiver Email: {receiver_email}")
+                    custom_print(f"[INFO] Sender Email: {sender_email}, Username: {sender_username}, Password: {sender_password}, Receiver Email: {receiver_email}")
                     content = content_store[client_key]
-                    print(f"[INFO] Content: {content}")
+                    custom_print(f"[INFO] Content: {content}")
                     encrypted_https_request = client.send_application_data(sender_email, sender_username, sender_password, receiver_email, content)
                     tls_connection_object_store[client_key] = client
                     output = [False, encrypted_https_request.hex()]
@@ -252,9 +259,9 @@ def server_handler(args):
                     client = tls_connection_object_store[client_key]
                     record, content = content.split("|")
                     decrypted_result = client.receive_application_data(bytes.fromhex(record), bytes.fromhex(content))
-                    print(f"[INFO] Decrypted result: {decrypted_result}")
+                    custom_print(f"[INFO] Decrypted result: {decrypted_result}")
                     decrypted_result = base64.b64encode(decrypted_result)
-                    print(f"[INFO] Base64-encoded decrypted result: {decrypted_result}")
+                    custom_print(f"[INFO] Base64-encoded decrypted result: {decrypted_result}")
                     decrypted_result = decrypted_result.hex()
                     shared_key = dh_key_store[client_key][1]
                     encrypted_response = encrypt_data_for_client(decrypted_result, shared_key)
@@ -270,7 +277,7 @@ def server_handler(args):
                     nsm_util = NSMUtil()
                     attestation_doc = nsm_util.get_attestation_doc()
                     nsm_util_store[client_key] = nsm_util
-                    print(f"[INFO] Attestation document: {attestation_doc}")
+                    custom_print(f"[INFO] Attestation document: {attestation_doc}")
                     # Base64 encode the attestation doc
                     attestation_doc_b64 = base64.b64encode(attestation_doc).decode()
                     
@@ -280,13 +287,13 @@ def server_handler(args):
                     ciphertext_b64 = encrypt(attestation_doc, secret)
                     ciphertext = base64.b64decode(ciphertext_b64)
                     plaintext = nsm_util.decrypt(ciphertext)
-                    print(f"[INFO] Plaintext: {plaintext}, Ciphertext (Base64): {ciphertext_b64}, Secret: {secret}")
+                    custom_print(f"[INFO] Plaintext: {plaintext}, Ciphertext (Base64): {ciphertext_b64}, Secret: {secret}")
                     if plaintext == secret:
-                        print("[INFO] Encryption and decryption works!")
+                        custom_print("[INFO] Encryption and decryption works!")
                     
                     attestation_doc_encrypted = encrypt_data_for_client(attestation_doc_b64, shared_key)
                     
-                    print(f"[INFO] Attestation document encrypted: {attestation_doc_encrypted.hex()}")
+                    custom_print(f"[INFO] Attestation document encrypted: {attestation_doc_encrypted.hex()}")
                     output = [False, attestation_doc_encrypted.hex()]
                     conn.sendall(" ".join(map(str, output)).encode())
                     
@@ -308,18 +315,18 @@ def server_handler(args):
                     nsm_util = nsm_util_store[client_key]
                     ciphertext = base64.b64decode(ciphertext_b64)
                     actual_secret = nsm_util.decrypt(ciphertext)
-                    print(f"[INFO] Plaintext: {actual_secret}, Ciphertext (Base64): {ciphertext_b64}")
+                    custom_print(f"[INFO] Plaintext: {actual_secret}, Ciphertext (Base64): {ciphertext_b64}")
                     
                     secret_reencrypted = encrypt_data_for_client(actual_secret, shared_key)
                     
-                    print(f"[INFO] Decrypted and re-encrypted secret: {secret_reencrypted.hex()}")
+                    custom_print(f"[INFO] Decrypted and re-encrypted secret: {secret_reencrypted.hex()}")
                     output = [False, secret_reencrypted.hex()]
                     conn.sendall(" ".join(map(str, output)).encode())
                     
                     #conn.close()
                     #server.close()
         except ValueError:
-            print("[ERROR] ValueError encountered, likely due to incomplete data. Continuing to receive more data.")
+            custom_print("[ERROR] ValueError encountered, likely due to incomplete data. Continuing to receive more data.")
             # If split fails due to incomplete data, keep receiving until complete
             while True and len(incoming) > 0:
                 more_data = conn.recv(1024).decode()
@@ -328,10 +335,10 @@ def server_handler(args):
                 incoming += more_data
                 try:
                     data_type, content, client_key = incoming.split(" ")
-                    print(f"[INFO] Successfully received complete data - Type: {data_type}, Content: {content}, Client Key: {client_key}")
+                    custom_print(f"[INFO] Successfully received complete data - Type: {data_type}, Content: {content}, Client Key: {client_key}")
                     break  # Exit the loop if split succeeds
                 except ValueError:
-                    print("[INFO] Incomplete data received, waiting for more data...")
+                    custom_print("[INFO] Incomplete data received, waiting for more data...")
                     pass  # Continue receiving until a complete message is received
         except socket.error as e:
             break
@@ -343,9 +350,9 @@ def main():
     parser.add_argument("port", type=int, help="The local port to listen on.")
 
     args = parser.parse_args()
-    print(f"[INFO] Starting server on port {args.port}")
+    custom_print(f"[INFO] Starting server on port {args.port}")
     server_handler(args)
-    print("[INFO] Exiting server")
+    custom_print("[INFO] Exiting server")
 
 if __name__ == "__main__":
     main()

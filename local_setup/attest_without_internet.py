@@ -2,6 +2,7 @@ import base64
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 from attestation_verifier import verify_attestation_doc
+import os
 
 # Run the code in a device without internet connectivity for validating the local attestation capabilities
 # The check_local_attestation.sh handles the task of cutting off internet
@@ -14,9 +15,17 @@ attestation_doc_b64 = (
 )
 root_cert_path = 'root.pem'
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
+def custom_print(*args, **kwargs):
+    if os.getenv('ENABLE_PRINTS') == 'True':
+        print(*args, **kwargs)
+        
 def main():
     attestation_doc = base64.b64decode(attestation_doc_b64)
-    print("[INFO] Attestation document received")
+    custom_print("[INFO] Attestation document received")
 
     # Load the root certificate
     with open(root_cert_path, 'r') as file:
@@ -25,9 +34,9 @@ def main():
     # Verify the attestation document
     try:
         verify_attestation_doc(attestation_doc, pcrs=[pcr0], root_cert_pem=root_cert_pem)
-        print("[INFO] Attestation successful")
+        custom_print("[INFO] Attestation successful")
     except Exception as e:
-        print(f"[ERROR] Attestation failed: {e}")
+        custom_print(f"[ERROR] Attestation failed: {e}")
         raise e
 
 if __name__ == "__main__":

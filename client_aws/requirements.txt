@@ -5,3 +5,4 @@ cbor2==5.2.0
 cose==0.9.dev2
 pycryptodome==3.9.9
 websockets==10.1
+python-dotenv

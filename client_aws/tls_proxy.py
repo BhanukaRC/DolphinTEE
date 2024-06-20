@@ -13,6 +13,14 @@ from print_colors import bcolors
 import hashlib
 import hmac
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
+def custom_print(*args, **kwargs):
+    if os.getenv('ENABLE_PRINTS') == 'True':
+        print(*args, **kwargs)
+        
 def print_hex(b):
     return ':'.join('{:02X}'.format(a) for a in b)
 
@@ -20,9 +28,9 @@ def print_hex(b):
 def log(fun):
     def run(*args, **kwargs):
         fun_name = ' '.join(map(lambda x: x[0].upper() + x[1:], fun.__name__.split('_')))
-        print(fun_name + ' Begin')
+        custom_print(fun_name + ' Begin')
         result = fun(*args, **kwargs)
-        print(fun_name + ' End')
+        custom_print(fun_name + ' End')
         return result
 
     return run
@@ -56,13 +64,13 @@ class Proxy:
         self.debug = debug
         self.ssl_key_logfile = ssl_key_logfile
         self.is_server_key_exchange = None
-        print("proxy init")
+        custom_print("proxy init")
         
     def debug_print(self, title, message, *, prefix='\t'):
         if self.debug:
             message = '{color_begin}{message}{color_end}'.format(color_begin=bcolors.OKGREEN, message=message,
                                                                  color_end=bcolors.ENDC)
-            print(prefix, title, message)
+            custom_print(prefix, title, message)
 
     def record(self, content_type, data, *, tls_version=None):
         return record(content_type, tls_version or self.tls_version, data)
