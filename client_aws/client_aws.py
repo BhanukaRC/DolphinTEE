@@ -287,7 +287,9 @@ def client_handler(client):
         received_data += data_chunk
 
     error, response = received_data.split(' ')
+    response = client.decrypt_data(response, full_dh_key)
     custom_print(f"[INFO] Final response: {response}")
+    
 
 def send_message(server_address, server_port, message):
     addr = (server_address, server_port)

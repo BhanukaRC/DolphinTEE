@@ -196,6 +196,7 @@ async def perform_task():
 
                             # Check the status of the email
                             response_str = actual_response.decode('utf-8')
+                            print(response_str)
                             if "HTTP/1.1 200 OK" in response_str:
                                 print("[INFO] Status is 200")
                             else:
